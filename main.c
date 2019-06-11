@@ -78,7 +78,7 @@ int connect_gai(char *host, char *service) {
 	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
 	hints.ai_socktype = SOCK_DGRAM; /* Datagram socket */
-	hints.ai_flags = 0;
+	hints.ai_flags |= AI_CANONNAME;
 	hints.ai_protocol = 0;          /* Any protocol */
 
 	s = getaddrinfo(host,service, &hints, &result);
@@ -93,7 +93,10 @@ int connect_gai(char *host, char *service) {
 	   and) try the next address. */
 
 	for (rp = result; rp != NULL; rp = rp->ai_next) {
-		fprintf(stderr, "connecting using rp %p (af %d) ...", rp, rp->ai_family);
+		fprintf(stderr, "connecting using rp %p (%s, af %d) ...",
+				rp,
+				rp->ai_canonname,
+				rp->ai_family);
 		sfd = socket(rp->ai_family, rp->ai_socktype,
 				rp->ai_protocol);
 		if (sfd == -1)
@@ -129,6 +132,7 @@ int try_read(int sfd) {
 	ssize_t s;
 
 	if((s = read(sfd, buf, sizeof(buf))) < 0) {
+		perror("error: reading: ");
 		return -4;
 	}
 
