@@ -69,7 +69,11 @@ int parse_argv(struct app_config *conf, int argc, char ** argv) {
 	return 0;
 }
 
-/* Simple connection using getaddrinfo(3), from the manpage */
+/* Simple connection using getaddrinfo(3), from the manpage;
+ * licensing terms for this function can be found at [0].
+ *
+ * [0] http://man7.org/linux/man-pages/man3/getaddrinfo.3.license.html
+ * */
 int connect_gai(char *host, char *service) {
 	struct addrinfo hints;
 	struct addrinfo *result, *rp;
