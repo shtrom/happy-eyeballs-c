@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include <sys/timeb.h>
 
@@ -17,6 +18,7 @@ struct app_config {
 
 int parse_argv(struct app_config *conf, int argc, char ** argv);
 int connect_gai(char *host, char *service);
+int connect_rfc6555(char *host, char *service);
 void print_delta(struct timeb *start, struct timeb *stop);
 int try_read(int sfd);
 
@@ -35,7 +37,8 @@ int main(int argc, char **argv) {
 	fprintf(stderr, "happy-eyeballing %s:%s ... \n", conf.host, conf.service);
 
 	ftime(&start);
-	if((sfd = connect_gai(conf.host, conf.service)) < 0)
+	/* if((sfd = connect_gai(conf.host, conf.service)) < 0) */
+	if((sfd = connect_rfc6555(conf.host, conf.service)) < 0)
 	{
 		fprintf(stderr, "error: connecting: %d\n", sfd);
 		return sfd;
@@ -73,7 +76,7 @@ int parse_argv(struct app_config *conf, int argc, char ** argv) {
  * licensing terms for this function can be found at [0].
  *
  * [0] http://man7.org/linux/man-pages/man3/getaddrinfo.3.license.html
- * */
+ */
 int connect_gai(char *host, char *service) {
 	struct addrinfo hints;
 	struct addrinfo *result, *rp;
@@ -81,7 +84,7 @@ int connect_gai(char *host, char *service) {
 
 	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
-	hints.ai_socktype = SOCK_DGRAM; /* Datagram socket */
+	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags |= AI_CANONNAME;
 	hints.ai_protocol = 0;          /* Any protocol */
 
@@ -110,11 +113,74 @@ int connect_gai(char *host, char *service) {
 			break;                  /* Success */
 
 		fprintf(stderr, " failed!\n");
+		perror("error: connecting: ");
 		close(sfd);
 	}
 
 	if (rp == NULL) {               /* No address succeeded */
 		fprintf(stderr, "failed! (last attempt)\n");
+		perror("error: connecting: ");
+		return -3;
+	}
+	fprintf(stderr, " success!\n");
+
+	freeaddrinfo(result);           /* No longer needed */
+
+	return sfd;
+}
+
+/* Variation on the above, to implement RFC6555.
+ *
+ * Licensing terms for this function can be found at [0].
+ *
+ * [0] http://man7.org/linux/man-pages/man3/getaddrinfo.3.license.html
+ */
+int connect_rfc6555(char *host, char *service) {
+	struct addrinfo hints;
+	struct addrinfo *result, *rp;
+	int sfd, s, flags;
+
+	memset(&hints, 0, sizeof(struct addrinfo));
+	hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_flags |= AI_CANONNAME;
+	hints.ai_protocol = 0;          /* Any protocol */
+
+	s = getaddrinfo(host,service, &hints, &result);
+	if (s != 0) {
+		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
+		exit(EXIT_FAILURE);
+	}
+
+	/* getaddrinfo() returns a list of address structures.
+	   Try each address until we successfully connect(2).
+	   If socket(2) (or connect(2)) fails, we (close the socket
+	   and) try the next address. */
+
+	for (rp = result; rp != NULL; rp = rp->ai_next) {
+		fprintf(stderr, "connecting using rp %p (%s, af %d) ...",
+				rp,
+				rp->ai_canonname,
+				rp->ai_family);
+		sfd = socket(rp->ai_family, rp->ai_socktype,
+				rp->ai_protocol);
+		if (sfd == -1)
+			continue;
+
+		flags = fcntl(s,F_GETFL,0);
+		fcntl(sfd, F_SETFL, flags | O_NONBLOCK);
+
+		if (connect(sfd, rp->ai_addr, rp->ai_addrlen) != -1)
+			break;                  /* Success */
+
+		fprintf(stderr, " failed!\n");
+		perror("error: connecting: ");
+		close(sfd);
+	}
+
+	if (rp == NULL) {               /* No address succeeded */
+		fprintf(stderr, "failed! (last attempt)\n");
+		perror("error: connecting: ");
 		return -3;
 	}
 	fprintf(stderr, " success!\n");
@@ -132,7 +198,7 @@ void print_delta(struct timeb *start, struct timeb *stop) {
 
 
 int try_read(int sfd) {
-	char buf[1024];
+	char buf[1];
 	ssize_t s;
 
 	if((s = read(sfd, buf, sizeof(buf))) < 0) {
