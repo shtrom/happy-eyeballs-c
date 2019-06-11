@@ -1,0 +1,2 @@
+CFLAGS+=-Wall
+all: main
