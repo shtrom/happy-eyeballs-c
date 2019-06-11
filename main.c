@@ -2,12 +2,16 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <unistd.h>
 #include <fcntl.h>
+
+#include <sys/select.h>
+#include <sys/time.h>
 
 #include <sys/timeb.h>
 
@@ -19,6 +23,9 @@ struct app_config {
 int parse_argv(struct app_config *conf, int argc, char ** argv);
 int connect_gai(char *host, char *service);
 int connect_rfc6555(char *host, char *service);
+int socket_connect(struct addrinfo *rp);
+int rfc6555(struct addrinfo *result, int sfd);
+struct addrinfo *find_ipv4_addrinfo(struct addrinfo *result);
 void print_delta(struct timeb *start, struct timeb *stop);
 int try_read(int sfd);
 
@@ -138,7 +145,7 @@ int connect_gai(char *host, char *service) {
 int connect_rfc6555(char *host, char *service) {
 	struct addrinfo hints;
 	struct addrinfo *result, *rp;
-	int sfd, s, flags;
+	int sfd, s;
 
 	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
@@ -158,22 +165,19 @@ int connect_rfc6555(char *host, char *service) {
 	   and) try the next address. */
 
 	for (rp = result; rp != NULL; rp = rp->ai_next) {
-		fprintf(stderr, "connecting using rp %p (%s, af %d) ...",
-				rp,
-				rp->ai_canonname,
-				rp->ai_family);
-		sfd = socket(rp->ai_family, rp->ai_socktype,
-				rp->ai_protocol);
+		sfd = socket_connect(rp);
 		if (sfd == -1)
 			continue;
-
-		flags = fcntl(s,F_GETFL,0);
-		fcntl(sfd, F_SETFL, flags | O_NONBLOCK);
 
 		if (connect(sfd, rp->ai_addr, rp->ai_addrlen) != -1)
 			break;                  /* Success */
 
-		fprintf(stderr, " failed!\n");
+		if (EINPROGRESS == errno) {
+			fprintf(stderr, " in progress ... \n");
+			if((sfd = rfc6555(rp, sfd)) > -1)
+				break;
+				}
+
 		perror("error: connecting: ");
 		close(sfd);
 	}
@@ -188,6 +192,97 @@ int connect_rfc6555(char *host, char *service) {
 	freeaddrinfo(result);           /* No longer needed */
 
 	return sfd;
+}
+
+int socket_connect(struct addrinfo *rp) {
+	int sfd;
+	int flags;
+
+	fprintf(stderr, "connecting using rp %p (%s, af %d) ...",
+			rp,
+			rp->ai_canonname,
+			rp->ai_family);
+
+	sfd = socket(rp->ai_family, rp->ai_socktype,
+			rp->ai_protocol);
+	if (sfd == -1)
+		return -1;
+
+	flags = fcntl(sfd, F_GETFL,0);
+	fcntl(sfd, F_SETFL, flags | O_NONBLOCK);
+
+	return sfd;
+}
+
+int rfc6555(struct addrinfo *result, int sfd) {
+	fd_set readfds, writefds;
+	int ret;
+	struct addrinfo *rpv4;
+	int sfdv4;
+
+	struct timeval timeout = { 0, 300000 }; /* 300ms */
+
+	FD_ZERO(&readfds);
+	FD_ZERO(&writefds);
+	FD_SET(sfd, &readfds);
+	FD_SET(sfd, &writefds);
+
+	fprintf(stderr, "info: waiting for 300ms ...\n");
+	/* select with 300ms TO */
+	if((ret = select(1, &readfds, &writefds, NULL, &timeout))) {
+		perror("error: initial timeout");
+		return -1;
+	}
+
+	if (ret == 1) {
+		return sfd;
+	}
+
+	fprintf(stderr, "info: still in progress, findind IPv4 ...\n");
+	/* find IPv4 address */
+	if(NULL == (rpv4 = find_ipv4_addrinfo(result->ai_next))) {
+		/* none found */
+		return sfd;
+	}
+	if (-1 == (sfdv4 = socket_connect(rpv4))) {
+		perror("error: setting up IPv4 socket");
+		return sfd;
+	}
+
+	FD_ZERO(&readfds);
+	FD_ZERO(&writefds);
+	FD_SET(sfd, &readfds);
+	FD_SET(sfdv4, &readfds);
+	FD_SET(sfd, &writefds);
+	FD_SET(sfdv4, &writefds);
+
+	fprintf(stderr, "info: waiting for any socket ...\n");
+	/* select with 300ms TO */
+	if((ret = select(1, &readfds, &writefds, NULL, &timeout))) {
+		perror("error: initial timeout");
+		return -1;
+	}
+
+	if (ret >= 1) {
+		if (FD_ISSET(sfd, &readfds) || FD_ISSET(sfd, &writefds)) {
+			fprintf(stderr, "info: IPv6 selected\n");
+			return sfd;
+		}
+		else if (FD_ISSET(sfdv4, &readfds) || FD_ISSET(sfdv4, &writefds)) {
+			fprintf(stderr, "info: IPv4 selected\n");
+			return sfdv4;
+		}
+	}
+	return -1;
+}
+
+struct addrinfo *find_ipv4_addrinfo(struct addrinfo *result) {
+	for (; result != NULL; result = result->ai_next) {
+		if (AF_INET == result->ai_family) {
+			return result;
+		}
+	}
+	return NULL;
 }
 
 void print_delta(struct timeb *start, struct timeb *stop) {
