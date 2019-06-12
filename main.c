@@ -15,6 +15,8 @@
 
 #include <sys/timeb.h>
 
+#define MAX(a,b) (((a)>(b))?(a):(b))
+
 struct app_config {
 	char *host;
 	char *service;
@@ -23,7 +25,7 @@ struct app_config {
 int parse_argv(struct app_config *conf, int argc, char ** argv);
 int connect_gai(char *host, char *service);
 int connect_rfc6555(char *host, char *service);
-int socket_connect(struct addrinfo *rp);
+int socket_create(struct addrinfo *rp);
 int rfc6555(struct addrinfo *result, int sfd);
 struct addrinfo *find_ipv4_addrinfo(struct addrinfo *result);
 void print_delta(struct timeb *start, struct timeb *stop);
@@ -33,7 +35,7 @@ int main(int argc, char **argv) {
 	struct app_config conf;
 	int ret = 0;
 	int sfd = 0;
-	struct timeb start, stop;
+	struct timeb start_all, start, stop;
 
 	if (0 != (ret = parse_argv(&conf, argc, argv))) {
 		fprintf(stderr, "error: parsing arguments: %d\n", ret);
@@ -43,6 +45,7 @@ int main(int argc, char **argv) {
 
 	fprintf(stderr, "happy-eyeballing %s:%s ... \n", conf.host, conf.service);
 
+	ftime(&start_all);
 	ftime(&start);
 	/* if((sfd = connect_gai(conf.host, conf.service)) < 0) */
 	if((sfd = connect_rfc6555(conf.host, conf.service)) < 0)
@@ -64,6 +67,7 @@ int main(int argc, char **argv) {
 	ftime(&stop);
 
 	print_delta(&start, &stop);
+	print_delta(&start_all, &stop);
 
 	return ret;
 }
@@ -165,7 +169,7 @@ int connect_rfc6555(char *host, char *service) {
 	   and) try the next address. */
 
 	for (rp = result; rp != NULL; rp = rp->ai_next) {
-		sfd = socket_connect(rp);
+		sfd = socket_create(rp);
 		if (sfd == -1)
 			continue;
 
@@ -176,7 +180,7 @@ int connect_rfc6555(char *host, char *service) {
 			fprintf(stderr, " in progress ... \n");
 			if((sfd = rfc6555(rp, sfd)) > -1)
 				break;
-				}
+		}
 
 		perror("error: connecting: ");
 		close(sfd);
@@ -187,14 +191,14 @@ int connect_rfc6555(char *host, char *service) {
 		perror("error: connecting: ");
 		return -3;
 	}
-	fprintf(stderr, " success!\n");
+	fprintf(stderr, " success: %d!\n", sfd);
 
 	freeaddrinfo(result);           /* No longer needed */
 
 	return sfd;
 }
 
-int socket_connect(struct addrinfo *rp) {
+int socket_create(struct addrinfo *rp) {
 	int sfd;
 	int flags;
 
@@ -229,7 +233,7 @@ int rfc6555(struct addrinfo *result, int sfd) {
 
 	fprintf(stderr, "info: waiting for 300ms ...\n");
 	/* select with 300ms TO */
-	if((ret = select(1, &readfds, &writefds, NULL, &timeout))) {
+	if((ret = select(sfd+1, &readfds, &writefds, NULL, &timeout)) < 0)  {
 		perror("error: initial timeout");
 		return -1;
 	}
@@ -238,15 +242,24 @@ int rfc6555(struct addrinfo *result, int sfd) {
 		return sfd;
 	}
 
-	fprintf(stderr, "info: still in progress, findind IPv4 ...\n");
+	fprintf(stderr, "info: still in progress, finding IPv4 ...\n");
 	/* find IPv4 address */
 	if(NULL == (rpv4 = find_ipv4_addrinfo(result->ai_next))) {
-		/* none found */
+		fprintf(stderr, "error: none found, IPv6 selected\n");
 		return sfd;
 	}
-	if (-1 == (sfdv4 = socket_connect(rpv4))) {
+	if (-1 == (sfdv4 = socket_create(rpv4))) {
 		perror("error: setting up IPv4 socket");
 		return sfd;
+	}
+	if (connect(sfdv4, rpv4->ai_addr, rpv4->ai_addrlen) != 0) {
+		if (EINPROGRESS == errno) {
+			fprintf(stderr, " in progress ... \n");
+		} else {
+			perror("error: connecting: ");
+			close(sfdv4);
+			return sfd;
+		}
 	}
 
 	FD_ZERO(&readfds);
@@ -258,8 +271,9 @@ int rfc6555(struct addrinfo *result, int sfd) {
 
 	fprintf(stderr, "info: waiting for any socket ...\n");
 	/* select with 300ms TO */
-	if((ret = select(1, &readfds, &writefds, NULL, &timeout))) {
-		perror("error: initial timeout");
+	if((ret = select(MAX(sfd,sfdv4)+1, &readfds, &writefds,
+					NULL, NULL /* &timeout */)) < 0) {
+		perror("error: second timeout");
 		return -1;
 	}
 
@@ -278,6 +292,9 @@ int rfc6555(struct addrinfo *result, int sfd) {
 
 struct addrinfo *find_ipv4_addrinfo(struct addrinfo *result) {
 	for (; result != NULL; result = result->ai_next) {
+		fprintf(stderr, "info: considering %s (%d) ... \n",
+				result->ai_canonname,
+				result->ai_family);
 		if (AF_INET == result->ai_family) {
 			return result;
 		}
@@ -293,12 +310,14 @@ void print_delta(struct timeb *start, struct timeb *stop) {
 
 
 int try_read(int sfd) {
-	char buf[1];
+	char buf[1024];
 	ssize_t s;
 
-	if((s = read(sfd, buf, sizeof(buf))) < 0) {
-		perror("error: reading: ");
-		return -4;
+	while((s = read(sfd, buf, sizeof(buf))) < 0) {
+		if (EAGAIN != errno) {
+			perror("error: reading: ");
+			return -4;
+		}
 	}
 
 	fprintf(stderr, "read: ");
