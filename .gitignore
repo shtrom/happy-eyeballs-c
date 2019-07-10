@@ -1,0 +1,3 @@
+*.o
+connect_gai
+connect_rfc6555
