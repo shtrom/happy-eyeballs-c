@@ -10,7 +10,7 @@
  *
  * This is 2*2 (A + AAAA, doubled for wiggle room)
  */
-#define MIN_CTX_SPACE 4
+#define MIN_CTX_LEN 4
 
 #define CONNECT_TIMEOUT_MS 300
 
@@ -19,7 +19,7 @@ static int rfc6555_context_grow(rfc6555_ctx *ctx);
 
 rfc6555_ctx *rfc6555_context_create()
 {
-	rfc6555_ctx *ctx = malloc(sizeof(ctx));
+	rfc6555_ctx *ctx = malloc(sizeof(rfc6555_ctx));
 	if (!ctx) {
 		return NULL;
 	}
@@ -27,7 +27,7 @@ rfc6555_ctx *rfc6555_context_create()
 	ctx->fds = NULL;
 	ctx->rps = NULL;
 	ctx->len = 0;
-	ctx->max_len = MIN_CTX_SPACE;
+	ctx->max_len = 0;
 	ctx->successful_fd = -1;
 
 	if(rfc6555_context_grow(ctx) < 0) {
@@ -61,9 +61,9 @@ static int rfc6555_context_append(rfc6555_ctx *ctx, int fd, struct addrinfo *rp,
  * been reached.
  * Return -1 on error.
  */
-#define ALLOC_FIELD(field, dtype, new_size) \
+#define ALLOC_FIELD(field, dtype, new_len) \
 	do { \
-		(field) = realloc((field), (new_size) * sizeof(dtype)); \
+		(field) = realloc((field), (new_len) * sizeof(dtype)); \
 		if (!(field)) { \
 			return -1; \
 		} \
@@ -71,7 +71,7 @@ static int rfc6555_context_append(rfc6555_ctx *ctx, int fd, struct addrinfo *rp,
 
 static int rfc6555_context_grow(rfc6555_ctx *ctx)
 {
-	size_t new_size;
+	size_t new_len;
 
 	if(!ctx) {
 		return -1;
@@ -81,14 +81,14 @@ static int rfc6555_context_grow(rfc6555_ctx *ctx)
 		return 0;
 	}
 
-	new_size = ctx->max_len * 2;
-	if (new_size <= 0) {
-		new_size = MIN_CTX_SPACE;
+	new_len = ctx->max_len * 2;
+	if (new_len <= 0) {
+		new_len = MIN_CTX_LEN;
 	}
 
-	ALLOC_FIELD(ctx->fds, int, new_size);
-	ALLOC_FIELD(ctx->original_flags, int, new_size);
-	ALLOC_FIELD(ctx->rps, struct addrinfo*, new_size);
+	ALLOC_FIELD(ctx->fds, int, new_len);
+	ALLOC_FIELD(ctx->original_flags, int, new_len);
+	ALLOC_FIELD(ctx->rps, struct addrinfo*, new_len);
 
 	return 0;
 }
@@ -121,7 +121,7 @@ int rfc6555_reorder(struct addrinfo *result)
 	struct addrinfo *rp, *rp6 = NULL, *prev = NULL;
 
 	for (rp = result; rp != NULL; rp = rp->ai_next) {
-		if (rp6 && AF_INET6 == rp->ai_family) {
+		if (!rp6 && AF_INET6 == rp->ai_family) {
 			rp6 = rp;
 		}
 		if (AF_INET == rp->ai_family) {
@@ -178,6 +178,7 @@ int rfc6555_connect(rfc6555_ctx *ctx, int socket, struct addrinfo **rp)
 		   || FD_ISSET(ctx->fds[i], &writefds)
 		) {
 			fd = ctx->fds[i];
+			ctx->successful_fd = i;
 			break;
 		} else if(FD_ISSET(ctx->fds[i], &errorfds)) {
 			/* Neutralise erroneous fd */
