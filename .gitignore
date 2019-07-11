@@ -1,4 +1,3 @@
 *.o
-connect_gai
-connect_rfc6555
-connect_rfc6555_min
+connect_*
+test
