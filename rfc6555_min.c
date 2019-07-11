@@ -55,7 +55,6 @@ int connect_host(char *host, char *service) {
 
 		fprintf(stderr, " failed!\n");
 		perror("error: connecting: ");
-		close(sfd);
 	}
 	rfc6555_context_destroy(ctx);
 

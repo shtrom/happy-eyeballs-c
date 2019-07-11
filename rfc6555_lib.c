@@ -102,13 +102,22 @@ static int rfc6555_context_grow(rfc6555_ctx *ctx)
 
 void rfc6555_context_destroy(rfc6555_ctx *ctx)
 {
+	int i;
+
 	if(!ctx) {
 		return;
 	};
 
-	/* XXX: Probably some other stuff to cleanup here */
+	if(ctx->fds) {
+		for (i=0; i<ctx->len; i++) {
+			/* Cleanup all but the successful socket */
+			if (ctx->successful_fd != i) {
+				close(ctx->fds[i]);
+			}
+		}
+		free(ctx->fds);
+	}
 
-	FREE_FIELD(ctx->fds);
 	FREE_FIELD(ctx->original_flags);
 	FREE_FIELD(ctx->rps);
 
@@ -156,20 +165,25 @@ int rfc6555_connect(rfc6555_ctx *ctx, int socket, struct addrinfo **rp)
 
 	fcntl(socket, F_SETFL, flags | O_NONBLOCK);
 
+	connect(socket, (*rp)->ai_addr, (*rp)->ai_addrlen);
+
 	FD_ZERO(&readfds);
 	for(i=0; i<ctx->len; i++) {
 		if(ctx->fds[i]<0) {
 			continue;
 		}
 		FD_SET(ctx->fds[i], &readfds);
+		FD_SET(ctx->fds[i], &writefds);
+		FD_SET(ctx->fds[i], &errorfds);
 		if(ctx->fds[i] > maxfd) {
 			maxfd = ctx->fds[i];
 		}
 	}
-	writefds = readfds;
-	errorfds = readfds;
 
-	if(select(maxfd, &readfds, &writefds, &errorfds, &timeout) < 0)  {
+	if(select(maxfd+1, &readfds, &writefds, &errorfds, timeoutp) <= 0)  {
+		if(0 == errno) {
+			errno = ETIMEDOUT;
+		}
 		return -1;
 	}
 
