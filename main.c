@@ -74,9 +74,10 @@ int parse_argv(struct app_config *conf, int argc, char ** argv) {
 
 
 void print_delta(struct timeb *start, struct timeb *stop) {
-	fprintf(stderr, "delta: %lds %dms\n",
-			stop->time - start->time,
-			stop->millitm-start->millitm);
+	int startms, stopms;
+	startms = start->time*1000+start->millitm;
+	stopms = stop->time*1000+stop->millitm;
+	fprintf(stderr, "%dms\n", stopms - startms);
 }
 
 
