@@ -67,7 +67,6 @@
 #include <sys/select.h>
 
 #include <errno.h>
-#include <stdio.h>
 
 #include "rfc6555.h"
 
