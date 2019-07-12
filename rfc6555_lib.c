@@ -4,6 +4,9 @@
 #include <fcntl.h>
 #include <sys/select.h>
 
+#include <errno.h>
+#include <stdio.h>
+
 #include "rfc6555.h"
 
 /* Minimal amount of entries to allocate in the context
@@ -47,12 +50,13 @@ static int rfc6555_context_append(rfc6555_ctx *ctx, int fd, struct addrinfo *rp,
 		return -1;
 	}
 
+	/* The length is also the next index */
 	idx = ctx->len;
-	ctx->len++;
 
 	ctx->fds[idx] = fd;
 	ctx->original_flags[idx] = flags;
 	ctx->rps[idx] = rp;
+	ctx->len++;
 
 	return idx;
 }
@@ -82,7 +86,7 @@ static int rfc6555_context_grow(rfc6555_ctx *ctx)
 	}
 
 	new_len = ctx->max_len * 2;
-	if (new_len <= 0) {
+	if (new_len <= MIN_CTX_LEN) {
 		new_len = MIN_CTX_LEN;
 	}
 
@@ -110,7 +114,7 @@ void rfc6555_context_destroy(rfc6555_ctx *ctx)
 
 	if(ctx->fds) {
 		for (i=0; i<ctx->len; i++) {
-			/* Cleanup all but the successful socket */
+			/* Cleanup all but the successful sockfd */
 			if (ctx->successful_fd != i) {
 				close(ctx->fds[i]);
 			}
@@ -152,20 +156,25 @@ int rfc6555_reorder(struct addrinfo *result)
 	return ret;
 }
 
-int rfc6555_connect(rfc6555_ctx *ctx, int socket, struct addrinfo **rp)
+int rfc6555_connect(rfc6555_ctx *ctx, int sockfd, struct addrinfo **rp)
 {
 	int fd = -1, maxfd = -1;
 	int flags;
 	int i;
 	fd_set readfds, writefds, errorfds;
-	struct timeval timeout = { 0, CONNECT_TIMEOUT_MS };
+	struct timeval timeout = { 0, CONNECT_TIMEOUT_MS * 1000 }, *timeoutp = &timeout;
 
-	flags = fcntl(socket, F_GETFL,0);
-	rfc6555_context_append(ctx, socket, *rp, flags);
+	flags = fcntl(sockfd, F_GETFL,0);
+	rfc6555_context_append(ctx, sockfd, *rp, flags);
 
-	fcntl(socket, F_SETFL, flags | O_NONBLOCK);
+	fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
 
-	connect(socket, (*rp)->ai_addr, (*rp)->ai_addrlen);
+	if(connect(sockfd, (*rp)->ai_addr, (*rp)->ai_addrlen) < 0
+	   && EINPROGRESS != errno
+	) {
+		fcntl(sockfd, F_SETFL, flags);
+		return -1;
+	}
 
 	FD_ZERO(&readfds);
 	for(i=0; i<ctx->len; i++) {
@@ -178,6 +187,12 @@ int rfc6555_connect(rfc6555_ctx *ctx, int socket, struct addrinfo **rp)
 		if(ctx->fds[i] > maxfd) {
 			maxfd = ctx->fds[i];
 		}
+	}
+
+	if(NULL == (*rp)->ai_next) {
+		/* Don't time out or error on the last RP */
+		timeoutp = NULL;
+		FD_ZERO(&errorfds);
 	}
 
 	if(select(maxfd+1, &readfds, &writefds, &errorfds, timeoutp) <= 0)  {
@@ -202,7 +217,9 @@ int rfc6555_connect(rfc6555_ctx *ctx, int socket, struct addrinfo **rp)
 		}
 	}
 
-	if (-1 != fd) {
+	if (-1 != ctx->successful_fd) {
+		i = ctx->successful_fd;
+		fd = ctx->fds[i];
 		fcntl(fd, F_SETFL, ctx->original_flags[i]);
 		*rp = ctx->rps[i];
 	}

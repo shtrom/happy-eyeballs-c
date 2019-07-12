@@ -28,6 +28,6 @@ int rfc6555_reorder(struct addrinfo *result);
  * Additionally, on successful connection, the rp pointer is updated
  * to match the returned socket.
  */
-int rfc6555_connect(rfc6555_ctx *ctx, int socket, struct addrinfo **rp);
+int rfc6555_connect(rfc6555_ctx *ctx, int sockfd, struct addrinfo **rp);
 
 #endif /*__RFC6555_H */
