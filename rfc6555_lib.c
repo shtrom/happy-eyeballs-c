@@ -28,6 +28,7 @@ rfc6555_ctx *rfc6555_context_create()
 	}
 
 	ctx->fds = NULL;
+	ctx->original_flags = NULL;
 	ctx->rps = NULL;
 	ctx->len = 0;
 	ctx->max_len = 0;
