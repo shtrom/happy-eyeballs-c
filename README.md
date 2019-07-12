@@ -10,7 +10,7 @@ ease of integration in existing projects.
 ## Get it
 
 The [authoritative source for this project can be found
-here](https://scm.narf.ssji.net/git/happy-eyeballs-c/), but [mirror is
+here](https://scm.narf.ssji.net/git/happy-eyeballs-c/), but [a mirror is
 maintained in sync on GitHub](https://github.com/shtrom/happy-eyeballs-c).
 You can clone the latest version with either
 
@@ -34,7 +34,7 @@ the binaries, as well as the amount of time elapsed).
 ## Use it
 
 As stated above, the aim is to have to make as few changes as possible in the
-Example GAI loop. Here's a diff between `gai.c` and `rfc6555_min.c` at the time
+Example GAI loop. Here's a diff between `gai.c` and `happy.c` at the time
 of this writing.
 
 ```diff
