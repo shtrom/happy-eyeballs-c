@@ -4,8 +4,7 @@ TESTPORT=1025
 
 TARGETS = \
 	  connect_gai \
-	  connect_rfc6555 \
-	  connect_rfc6555_min \
+	  connect_happy \
 	  # end
 TEST_TARGETS = $(addprefix test-,$(TARGETS))
 
@@ -14,10 +13,10 @@ all: $(TARGETS)
 connect_%: main.o %.o
 	$(CC) $(CFLAGS) $^ -o $@
 
-connect_rfc6555_min: rfc6555_lib.o
+connect_happy: rfc6555.o
 
 rfc6555_test: CFLAGS+=-g
-rfc6555_test: rfc6555_lib.o
+rfc6555_test: rfc6555.o
 
 test%: CFLAGS+=-g
 test: test-unit test-integration

@@ -1,10 +1,24 @@
-# Simple C implementation of RFC-6555 (Happy Eyeballs)
+#  Simple C implementation of RFC-6555 (Happy Eyeballs)
 
-This is a test implementation of the Happy Eyeballs algorithm from [rfc6555].
+This is an implementation of the Happy Eyeballs algorithm from [rfc6555].
 
-The aim is to provide an almost drop-in replacement to the standard [`connect`(3)]
+The aim is to provide a (almost) drop-in replacement to the standard [`connect`(3)]
 system call, so it can be used in the Example loop from [`getaddrinfo`(3)], for
 ease of integration in existing projects.
+
+
+## Get it
+
+The [authoritative source for this project can be found
+here](https://scm.narf.ssji.net/git/happy-eyeballs-c/), but [mirror is
+maintained in sync on GitHub](https://github.com/shtrom/happy-eyeballs-c).
+You can clone the latest version with either
+
+    git clone https://scm.narf.ssji.net/git/happy-eyeballs-c
+
+or
+
+    git clone https://github.com/shtrom/happy-eyeballs-c
 
 
 ## Try it
@@ -25,7 +39,7 @@ of this writing.
 
 ```diff
 --- gai.c	2019-07-10 21:39:59.827667939 +1000
-+++ rfc6555_min.c	2019-07-12 17:15:06.288931156 +1000
++++ happy.c	2019-07-12 17:15:06.288931156 +1000
 @@ -12,10 +12,13 @@
  #include <netdb.h>
  #include <unistd.h>
@@ -70,12 +84,30 @@ of this writing.
 
 ## TODO
 
-* Add license and usage comments to the drop-in files;
 * Review and (maybe) implement [rfc8305];
 * Make this an actual library with autoconf and all.
+
+
+## Authors
+
+This implementation:
+* Olivier Mehani <shtrom@ssji.net>, 2019
+
+The [`getaddrinfo`(3)] Example code:
+* Sam Varshavchik <mrsam@courier-mta.com>, 2000
+* Ulrich Drepper <drepper@redhat.com>, 2006
+* Michael Kerrisk <mtk.manpages@gmail.com>, 2007, 2008
+
+
+## Licenses
+
+The drop-in file and the accompanying headers are under LGPL-3.0-or-later; the
+rest is under GPL-3.0-or-later, except for the Example code from
+[`getaddrinfo`(3)], for which terms can be found at [gai-example-license].
 
 
 [rfc6555]: https://tools.ietf.org/rfcmarkup/6555
 [rfc8305]: https://tools.ietf.org/rfcmarkup/8305
 [`connect`(3)]: https://linux.die.net/man/3/connect
-[`gettaddrinfo`(3)]: https://linux.die.net/man/3/getaddrinfo
+[`getaddrinfo`(3)]: https://linux.die.net/man/3/getaddrinfo
+[gai-example-license]: http://man7.org/linux/man-pages/man3/getaddrinfo.3.license.html
