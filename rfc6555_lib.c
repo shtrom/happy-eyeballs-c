@@ -165,8 +165,6 @@ int rfc6555_connect(rfc6555_ctx *ctx, int sockfd, struct addrinfo **rp)
 	struct timeval timeout = { 0, CONNECT_TIMEOUT_MS * 1000 }, *timeoutp = &timeout;
 
 	flags = fcntl(sockfd, F_GETFL,0);
-	rfc6555_context_append(ctx, sockfd, *rp, flags);
-
 	fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
 
 	if(connect(sockfd, (*rp)->ai_addr, (*rp)->ai_addrlen) < 0
@@ -175,6 +173,7 @@ int rfc6555_connect(rfc6555_ctx *ctx, int sockfd, struct addrinfo **rp)
 		fcntl(sockfd, F_SETFL, flags);
 		return -1;
 	}
+	rfc6555_context_append(ctx, sockfd, *rp, flags);
 
 	FD_ZERO(&readfds);
 	for(i=0; i<ctx->len; i++) {
