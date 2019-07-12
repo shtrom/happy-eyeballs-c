@@ -82,7 +82,7 @@ void print_delta(struct timeb *start, struct timeb *stop) {
 
 
 int try_read(int sfd) {
-	char buf[1024];
+	char buf[10];
 	ssize_t s;
 
 	while((s = read(sfd, buf, sizeof(buf))) < 0) {
