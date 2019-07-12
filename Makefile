@@ -25,7 +25,9 @@ test: test-unit test-integration
 test-unit: rfc6555_test
 	./rfc6555_test
 
-test-integration: test-up $(TEST_TARGETS) test-down
+test-integration: $(TEST_TARGETS) test-down
+test-%: % test-up
+	./$(*) localhost $(TESTPORT)
 test-up:
 	-sudo iptables -I INPUT -p tcp --dport $(TESTPORT) -j ACCEPT
 	-sudo ip6tables -I INPUT -p tcp --dport $(TESTPORT) -j DROP
@@ -34,8 +36,6 @@ test-down:
 	killall -9 nc  # XXX: dodgy
 	-sudo ip6tables -D INPUT -p tcp --dport $(TESTPORT) -j DROP
 	-sudo iptables -D INPUT -p tcp --dport $(TESTPORT) -j ACCEPT
-test-%: %
-	./$(*) localhost $(TESTPORT)
 
 clean:
 	rm -f *.o
